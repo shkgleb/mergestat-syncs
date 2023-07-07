@@ -14,7 +14,7 @@ set -euo pipefail
 # @author: Patrick DeVivo (patrick@mergestat.com)
 
 # handle git_commits
-mergestat "SELECT '$MERGESTAT_REPO_ID', hash, message, author_name, author_email, author_when, committer_name, committer_email, committer_when, parents FROM commits" \
+mergestat "SELECT DISTINCT '$MERGESTAT_REPO_ID', hash, message, author_name, author_email, author_when, committer_name, committer_email, committer_when, parents FROM (select FULL_NAME, commits.* from refs left join commits('', FULL_NAME) as commits)" \
      -f csv-noheader \
      -r /mergestat/repo > commits.csv
 
@@ -29,7 +29,7 @@ cat commits.csv | psql $MERGESTAT_POSTGRES_URL -1 \
 rm commits.csv
 
 # handle git_commit_stats
-mergestat "SELECT '$MERGESTAT_REPO_ID', hash, file_path, additions, deletions, old_file_mode, new_file_mode FROM commits, stats('', commits.hash)" \
+mergestat "SELECT '$MERGESTAT_REPO_ID', hash, file_path, additions, deletions, old_file_mode, new_file_mode FROM (SELECT DISTINCT hash FROM (SELECT FULL_NAME, commits.hash FROM refs LEFT JOIN commits('', FULL_NAME) AS commits)) LEFT JOIN stats('', hash) AS stats where file_path IS NOT NULL" \
      -f csv-noheader \
      -r /mergestat/repo > commit-stats.csv
 
