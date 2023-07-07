@@ -12,6 +12,7 @@ COPY --from=builder /go/mergestat-lite/.build/mergestat /usr/local/bin/mergestat
 
 RUN mkdir -p /syncer
 COPY entrypoint.sh /syncer/
+RUN chmod +x /syncer/entrypoint.sh
 
 LABEL com.mergestat.sync.clone="true"
 
