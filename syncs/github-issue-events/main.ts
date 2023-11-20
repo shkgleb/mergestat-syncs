@@ -4,7 +4,7 @@
 // |_| |_| |_|\___|_|  \__, |\___|___/\__\__,_|\__|
 //                     |___/
 //
-// This syncer uses the GitHub API to sync Dependabot alerts for the given repository.
+// This syncer uses the GitHub API to sync issue events for the given repository.
 //
 // @author: Patrick DeVivo (patrick@mergestat.com)
 
@@ -41,10 +41,10 @@ const octokit = new OctokitWithThrottling({
         },
       },
 });
-const alertsBuffer = [];
+const eventsBuffer = [];
 const perPage = params.perPage || 100;
 
-const iterator = octokit.paginate.iterator(`GET /repos/${owner}/${repo}/dependabot/alerts`, {
+const iterator = octokit.paginate.iterator(`GET /repos/${owner}/${repo}/issues/events`, {
     headers: {
         'X-GitHub-Api-Version': '2022-11-28'
     },
@@ -52,29 +52,35 @@ const iterator = octokit.paginate.iterator(`GET /repos/${owner}/${repo}/dependab
     per_page: perPage,
 });
   
-for await (const { data: alerts } of iterator) {
-    console.log(`fetched page of dependabot alerts for: ${owner}/${repo} (${alerts.length} alerts)`)
-    for (const alert of alerts) {
-        alertsBuffer.push(alert)
+for await (const { data: events } of iterator) {
+    console.log(`fetched page of issue events for: ${owner}/${repo} (${events.length} events)`)
+    for (const alert of events) {
+      eventsBuffer.push(alert)
     }
 }
 
-console.log(`fetched ${alertsBuffer.length} dependabot alerts for: ${owner}/${repo}`)
+console.log(`fetched ${eventsBuffer.length} issue events for: ${owner}/${repo}`)
+
 
 const schemaSQL = await Deno.readTextFile("./schema.sql");
 const client = new Client(Deno.env.get("MERGESTAT_POSTGRES_URL"));
 await client.connect();
 
-const tx = await client.createTransaction("syncs/github-dependabot");
+const tx = await client.createTransaction("syncs/github-issue-events");
 await tx.begin()
 
 await tx.queryArray(schemaSQL);
-await tx.queryArray(`DELETE FROM public.github_repo_dependabot_alert_results WHERE repo_id = $1;`, [repoID]);
-await tx.queryArray(`INSERT INTO public.github_repo_dependabot_alert_results (repo_id, dependabot_alerts) VALUES ($1, $2)`, [repoID, JSON.stringify(alertsBuffer)]);
+await tx.queryArray(`DELETE FROM public.github_issue_events WHERE repo_id = $1;`, [repoID]);
+for await (const event of eventsBuffer) {
+    await tx.queryArray(`
+INSERT INTO public.github_issue_events (repo_id, id, issue_number, url, actor_login, actor_id, actor_avatar_url, actor_url, event, commit_id, commit_url, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    `, [repoID, event.id, event.issue?.number, event.url, event.actor?.login, event.actor?.id, event.actor?.avatar_url, event.actor?.url, event.event, event.commit_id, event.commit_url, event.created_at]);
+}
 await tx.commit();
 
 await client.end();
 
-console.log(`synced ${alertsBuffer.length} dependabot alerts for: ${owner}/${repo} (repo_id: ${repoID})`)
+console.log(`synced ${eventsBuffer.length} issue events for: ${owner}/${repo} (repo_id: ${repoID})`)
 
 Deno.exit(0)
